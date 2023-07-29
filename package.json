@@ -11,9 +11,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@vmadden191/kargs": "^1.0.55",
     "axios": "^1.4.0",
     "dotenv": "^16.3.1",
     "googleapis": "^122.0.0",
-    "@vmadden191/kargs": "^1.0.55"
+    "open": "^9.1.0"
   }
 }

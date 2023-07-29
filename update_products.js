@@ -11,6 +11,7 @@ import {
   getAllSpreadsheetNamesAndIds,
 } from "./helpers/googleSheets.js";
 import { parseArgs } from "@vmadden191/kargs";
+import open from "open";
 
 const PRODUCT_SPREADSHEET_NAME = "Skatelooks-WooCommerce-products";
 
@@ -91,6 +92,8 @@ const fields = [
   "weight",
 ];
 
+const integerFields = ["id", "menu_order"];
+
 const argOptions = {
   command: {
     alias: "c",
@@ -104,6 +107,11 @@ const argOptions = {
     type: "array",
     description: `fields to bring to sheet (sl_to_sheets) or to save to site (sheets_to_sl).  use "*" for all`,
     isRequired: true,
+  },
+  testMode: {
+    alias: "t",
+    type: "switch",
+    description: "for sheets_to_sl: will report the changes but not save them",
   },
 };
 
@@ -295,10 +303,105 @@ const sl_to_sheets = async () => {
   }
 
   await formatFirstSheetHeader(spreadsheetId);
+  await open(`https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+};
+
+const sheets_to_sl = async () => {
+  if (parsedArgs.testMode) {
+    console.log("TEST MODE - no changes will be made");
+  }
+  const googleAuth = await getExistingAuth();
+  initializeClient(googleAuth);
+
+  const products = await queryWoocommerce({
+    method: "post",
+    path: "/products",
+  });
+  if (products.length === 0) {
+    console.log("woocommerce returned no products");
+    process.exit(0);
+  }
+
+  let fields;
+  if (parsedArgs.fields.length === 1 && parsedArgs.fields[0] === "*") {
+    fields = Object.keys(products[0]);
+  } else {
+    fields = [...parsedArgs.fields.filter((f) => f !== "id")];
+  }
+
+  const existingSpreadsheets = await getAllSpreadsheetNamesAndIds();
+  const matchingSpreadsheet = existingSpreadsheets.find(
+    (s) => s.name === PRODUCT_SPREADSHEET_NAME
+  );
+  if (!matchingSpreadsheet) {
+    console.log(
+      `no matching spreadsheet found with the name "${PRODUCT_SPREADSHEET_NAME}" - exiting`
+    );
+    process.exit(1);
+  }
+  const existingSpreadsheet = await getSpreadsheetById(matchingSpreadsheet.id);
+  const { rowData } = existingSpreadsheet.sheets[0].data[0];
+  const fieldsAndIndexes = rowData[0].values
+    .filter((v) => !!v.userEnteredValue)
+    .reduce((acc, v, i) => {
+      acc[v.userEnteredValue.stringValue] = i;
+      return acc;
+    }, {});
+
+  for (let i = 1; i < rowData.length; i++) {
+    const sheetRowObj = {};
+    for (const k in fieldsAndIndexes) {
+      sheetRowObj[k] =
+        rowData[i].values[fieldsAndIndexes[k]].userEnteredValue.stringValue;
+      if (!sheetRowObj[k]) {
+        sheetRowObj[k] =
+          rowData[i].values[fieldsAndIndexes[k]].userEnteredValue.numberValue;
+      }
+      if (!sheetRowObj[k]) {
+        throw new Error(`couldn't parse ${k} from sheet`);
+      }
+      if (integerFields.includes(k)) {
+        sheetRowObj[k] = parseInt(sheetRowObj[k]);
+      }
+    }
+    for (const p of products) {
+      let productHasUpdates = false;
+      if (p.id === sheetRowObj.id) {
+        for (const f of fields) {
+          if (p[f] !== sheetRowObj[f]) {
+            productHasUpdates = true;
+            console.log(
+              `updating product id ${p.id} - field "${f}" from ${p[f]} to ${sheetRowObj[f]}`
+            );
+            p[f] = sheetRowObj[f];
+          }
+        }
+        if (!parsedArgs.testMode && productHasUpdates) {
+          try {
+            const response = await axios.put(
+              `${BASE_API_URL}/products/${p.id}?consumer_key=${WOOCOMMERCE_CONSUMER_KEY}&consumer_secret=${WOOCOMMERCE_CONSUMER_SECRET}`,
+              p
+            );
+          } catch (ex) {
+            console.error(
+              `Axios error while trying to update produce ${p.id}`,
+              ex
+            );
+            process.exit(1);
+          }
+        }
+      }
+    }
+  }
 };
 
 (async () => {
-  if (parsedArgs.command === "sl_to_sheets") {
-    await sl_to_sheets();
+  switch (parsedArgs.command) {
+    case "sl_to_sheets":
+      await sl_to_sheets();
+      break;
+    case "sheets_to_sl":
+      await sheets_to_sl();
+      break;
   }
 })();
