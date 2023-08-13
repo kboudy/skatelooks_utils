@@ -7,7 +7,7 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "update_products/sl_to_sheets",
+      "name": "update_products sl_to_sheets",
       "skipFiles": ["<node_internals>/**"],
       "program": "${workspaceFolder}/update_products.js",
       "args": [
@@ -15,24 +15,23 @@
         "sl_to_sheets",
         "--fields",
         "description",
-        "menu_order",
         "name",
-        "price",
-        "price_html",
-        "type"
+        "categories"
       ]
     },
     {
       "type": "node",
       "request": "launch",
-      "name": "update_products/sheets_to_sl",
+      "name": "update_products sheets_to_sl",
       "skipFiles": ["<node_internals>/**"],
       "program": "${workspaceFolder}/update_products.js",
       "args": [
         "--command",
         "sheets_to_sl",
         "--fields",
-        "menu_order",
+        "description",
+        "name",
+        "categories",
         "--testMode"
       ]
     }

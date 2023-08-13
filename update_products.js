@@ -1,6 +1,13 @@
 import axios from "axios";
 import "dotenv/config";
+import _ from "lodash";
 import { getExistingAuth } from "./helpers/googleAuth.js";
+import {
+  initializeFieldConversion,
+  value_toString,
+  string_toValue,
+  are_equivalent,
+} from "./helpers/fieldConversion.js";
 import {
   initializeClient,
   createSpreadsheet,
@@ -237,7 +244,7 @@ const sl_to_sheets = async () => {
         console.error(`Unrecognized field: ${f} - exiting`);
         process.exit(1);
       }
-      vals.push(p[f]);
+      vals.push(value_toString(f, p[f]));
     }
 
     return {
@@ -274,6 +281,25 @@ const sl_to_sheets = async () => {
         },
       ]);
 
+    // hide the first column (id)
+    await updateSpreadsheet(matchingSpreadsheet.id, [
+      {
+        updateDimensionProperties: {
+          range: {
+            sheetId: newSheet.properties.sheetId,
+            dimension: "COLUMNS",
+            startIndex: 0,
+            endIndex: 1,
+          },
+          properties: {
+            hiddenByUser: true,
+          },
+          fields: "hiddenByUser",
+        },
+      },
+    ]);
+
+    // populate the sheet
     await updateSpreadsheet(matchingSpreadsheet.id, [
       {
         appendCells: {
@@ -322,6 +348,8 @@ const sheets_to_sl = async () => {
     process.exit(0);
   }
 
+  initializeFieldConversion(products);
+
   let fields;
   if (parsedArgs.fields.length === 1 && parsedArgs.fields[0] === "*") {
     fields = Object.keys(products[0]);
@@ -368,12 +396,18 @@ const sheets_to_sl = async () => {
       let productHasUpdates = false;
       if (p.id === sheetRowObj.id) {
         for (const f of fields) {
-          if (p[f] !== sheetRowObj[f]) {
+          const valFromSheet = string_toValue(f, sheetRowObj[f]);
+          const valFromWooProduct = p[f];
+          if (!are_equivalent(f, valFromWooProduct, valFromSheet)) {
             productHasUpdates = true;
             console.log(
-              `updating product id ${p.id} - field "${f}" from ${p[f]} to ${sheetRowObj[f]}`
+              `updating product id ${
+                p.id
+              } - field "${f}" from "${value_toString(f, p[f])}" to "${
+                sheetRowObj[f]
+              }"`
             );
-            p[f] = sheetRowObj[f];
+            p[f] = valFromSheet;
           }
         }
         if (!parsedArgs.testMode && productHasUpdates) {
